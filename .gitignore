@@ -1,0 +1,14 @@
+/aws
+/Exercises
+/.aws
+/.cache
+/.local
+/.agentcore
+/.claude
+/.config
+/.dbclient
+/.npm
+/.voc
+.bashrc
+.profile
+.zshrc
