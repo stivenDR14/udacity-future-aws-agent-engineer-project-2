@@ -1,0 +1,11 @@
+# Considerations:
+
+**Key Design Decisions**
+
+Regarding the Knowledge base separated as a tool, allow us to keep the window context of the model with a low consupmition, allowing it to retreive data efficently since exact resources and not to allucinate from training data. On the other hand, to use hooks that allow to control the pipeline while sending and receiving messages from the interaction with model, is pretty useful, in case we needed not just to process long term memory, but aslo to add any kind of timestamp, adittional information or even to avoid saving certain data while the interactiosn are done.
+
+**Challenges**
+Some of the issues we are addressing is the way we hanlde diffrent params like, actor_id, session_id, Memory... and with these identities, it is easy to get confussed the system about conversations. In theory, one customer may access the session or data form other if we don't take into account some robust separation rules, or even a less flexible platform that avoid these behaviours. Another thing we need to improve is the error handling, with the use of all diferent tools, it may take errors for similar requests, in that way, it would be better to implement different agents wiht specific tools for each one, or at least to try different tools in different time, becuase all of them with same time and both of them with errors, is going to crash the iteration.
+
+**Looking for production**
+A 'middleware' into the hook for check the authentic identity of the user which is trying to get the long term memory would be crucial. In the other side, to get a cost control for the tool, is worth, the use of different tools at the same time for different users, would increase the bill and the resources for a single agent. Also some external services as API gateway with lambdas, needs timeouts in order to avoid processing and waste resources at the mid of long requests or maybe down services. Finally indicate some specific rules about what information has value into the preferences or the fact to be saved is important and may be processed into the hooks, in order to avoid to get not valuable information
