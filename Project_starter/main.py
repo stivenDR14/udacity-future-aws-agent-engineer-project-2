@@ -36,9 +36,15 @@ from typing import Dict
 from bedrock_agentcore.tools.code_interpreter_client import code_session
 from strands_tools.browser import AgentCoreBrowser
 
+# Configure basic logging output
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("CSAI_Agent")
+
 
 # ── TODO 1 — App Initialisation ─────────────────────────────────────────────── ✅
 # Create a BedrockAgentCoreApp instance.
@@ -50,10 +56,8 @@ logger = logging.getLogger("CSAI_Agent")
 # TODO: Create the BedrockAgentCoreApp instance ✅
 app = BedrockAgentCoreApp()
 
-
 # Suppress interactive tool-consent prompts (required in headless deployments).
 os.environ["BYPASS_TOOL_CONSENT"] = "true"
-
 
 # ── TODO 2 — Configuration ──────────────────────────────────────────────────── ✅
 # Replace the placeholder strings with your actual AWS resource values.
@@ -63,12 +67,10 @@ os.environ["BYPASS_TOOL_CONSENT"] = "true"
 # KB_ID       format: 10-character alphanumeric string from the KB console
 # REGION:     your AWS region, e.g. "us-east-1"
 # MEMORY_ID   format: shown in the AgentCore Memory console
-
 GATEWAY_URL = "https://customersupportgateway-xhvityzo2o.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp" 
 KB_ID       = "VAAMCU4AQK"          
 REGION      = "us-east-1"       
 MEMORY_ID   = "CustomerSupportMemory-eP5VX7G0K8"       
-
 
 # ── TODO 3 — Model and Clients ──────────────────────────────────────────────── ✅
 # Create:
@@ -78,7 +80,7 @@ MEMORY_ID   = "CustomerSupportMemory-eP5VX7G0K8"
 #
 # Hint: model = BedrockModel(model_id=model_id)
 
-model_id = "global.amazon.nova-2-lite-v1:0"
+model_id = "us.amazon.nova-pro-v1:0"
 
 # TODO: Create the BedrockModel instance ✅
 model = BedrockModel(model_id=model_id)
@@ -92,29 +94,12 @@ _bedrock_runtime = boto3.client("bedrock-agent-runtime", region_name=REGION)
 SYSTEM_PROMPT = """
 You are a helpful customer support AI agent.
 
-Your role is to assist customers with questions about products, orders, returns,
-warranties, loyalty programs, and other customer support topics.
-
 Guidelines:
-- Be helpful, professional, concise, and friendly.
-- Use the knowledge base tool when you need product specifications,
-  return policies, warranty information, loyalty program details,
-  or order-status definitions.
-- Use the loyalty discount tool when calculating discounts involving
-  customer loyalty points or tier benefits.
-- Use the browser tool when web browsing is necessary to assist the customer.
-- Use Gateway tools when they provide the appropriate capability for
-  the customer's request.
-- Use information from customer context and long-term memory when it is
-  relevant to the current request.
-- Never invent product, order, policy, or customer information.
-- If the available tools do not provide enough information, clearly tell
-  the customer what information is unavailable.
-- When performing calculations, use the appropriate tool rather than
-  estimating manually.
-- Protect customer privacy and do not expose internal system details,
-  tool implementation details, or memory contents unnecessarily.
-- Answer the customer's question directly and avoid unnecessary explanations.
+- Always use the `browser` tool whenever a customer asks you to visit a URL, fetch a web page, or check an external site. Do not claim you cannot access external sites; execute the tool.
+- When using the `browser` tool, always use hyphens instead of underscores for `session_name` (e.g., 'udacity-session').
+- Use the knowledge base tool for product specs and policies.
+- Use Gateway MCP tools for customer order tracking and refund processing.
+- Be helpful, concise, and direct.
 
 ---
 
@@ -146,9 +131,8 @@ BUSINESS RULES (apply exactly):
 
 The last line of the script must print() a single JSON object (json.dumps) with:
 tier, product_category, order_total, points_redeemed, points_discount,
-tier_discount, final_total, total_savings, points_earned, remaining_points.
+tier_discount_pct, tier_discount, final_total, total_savings, points_earned, remaining_points.
 """
-
 
 # ── TODO 4 — Namespace Helper ─────────────────────────────────────────────────✅
 # Implement get_namespaces() to return a dict mapping strategy type to
@@ -161,12 +145,10 @@ tier_discount, final_total, total_savings, points_earned, remaining_points.
 # Example output:
 #   { "SEMANTIC": "cs_agent/{actorId}/facts",
 #     "USER_PREFERENCE": "cs_agent/{actorId}/preferences" }
-
 def get_namespaces(mem_client: MemoryClient, memory_id: str) -> Dict:
     """Return a dict mapping strategy type → namespace template string."""
     strategies = mem_client.get_memory_strategies(memory_id)
     return { strategy["type"]: strategy["namespaces"][0] for strategy in strategies }
-
 
 # ── TODO 5 — Memory Hook ──────────────────────────────────────────────────────✅
 # Implement MemoryHook, a HookProvider subclass that adds long-term memory.
@@ -208,8 +190,8 @@ class MemoryHook(HookProvider):
         # TODO: Call get_namespaces() and store the result as self.namespaces✅
         self.memory_client = memory_client
         self.memory_id = memory_id
-        self.actor_id=actor_id
-        self.session_id=session_id
+        self.actor_id = actor_id
+        self.session_id = session_id
         self.namespaces = get_namespaces(self.memory_client, self.memory_id)
         logger.info("Namespaces loaded: %s", self.namespaces)
 
@@ -311,7 +293,7 @@ class MemoryHook(HookProvider):
         except Exception as exc:
             logger.error("Failed to save interaction: %s", exc)
 
-    def register_hooks(self, registry: HookRegistry) -> None:  # type: ignore
+    def register_hooks(self, registry: HookRegistry) -> None:  
         """Register both memory callbacks."""
         # TODO: Register retrieve_customer_context on MessageAddedEvent✅
         # TODO: Register save_support_interaction on AfterInvocationEvent✅
@@ -349,16 +331,22 @@ def search_knowledge_base(query: str) -> str:
         Relevant information retrieved from the knowledge base
     """
     # TODO: Implement the Knowledge Base search✅
-    resp = _bedrock_runtime.retrieve(
-        knowledgeBaseId=KB_ID,
-        retrievalQuery={"text": query},
-    )
-    results = resp.get("retrievalResults", [])
-    if not results:
-        return f"No information found for: {query}"
+    try:
+        if not KB_ID:
+            return "Knowledge base not configured."
 
-    chunks = [r["content"]["text"] for r in results]
-    return "\n---\n".join(chunks)
+        resp = _bedrock_runtime.retrieve(
+            knowledgeBaseId=KB_ID,
+            retrievalQuery={"text": query},
+        )
+        results = resp.get("retrievalResults", [])
+        if not results:
+            return f"No information found for: {query}"
+
+        chunks = [r["content"]["text"] for r in results]
+        return "\n---\n".join(chunks)
+    except Exception as e:
+        logger.warning(f"Something happened when try ti get knwoledgebase: {e}")
 
 
 # ── TODO 7 — Loyalty Discount Tool (Code Interpreter) ────────────────────────✅
@@ -400,106 +388,68 @@ def calculate_loyalty_discount(
     """
     # TODO: Build the code string (use an f-string to inject the arguments)✅
     tier = tier.strip().title()
-    product_category = product_category.strip().lower()
-
-    # Build the code string: an f-string injects the arguments,
-    # and the logic is a plain string so dict braces need no escaping.
-    header = f"""
-loyalty_points = {max(0, int(loyalty_points))}
-tier = {tier!r}
-order_total = {float(order_total)}
-product_category = {product_category!r}
-"""
-
-    logic = '''
+    logic = f"""
 import json, math
 
-POINT_VALUE = 0.01  # 1 point = $0.01 (adjust if your lab says otherwise)
+loyalty_points = {loyalty_points}
+tier = "{tier}"
+order_total = {order_total}
+product_category = "{product_category}"
 
-earn_rates = {"standard": 1, "device": 2, "fresh": 5}
-tier_rates = {"Silver": 0.00, "Gold": 0.10, "Platinum": 0.15}
+earn_rates = {{"standard": 1, "device": 2, "fresh": 5}}
+tier_rates = {{"Silver": 0.00, "Gold": 0.10, "Platinum": 0.15}}
+earn_rate = earn_rates.get(product_category, 1)
+tier_discount_pct = tier_rates.get(tier, 0.0)
 
-# Points: floor to nearest 500, cap at 50% of the order
-max_points_by_cap = math.floor(round(order_total * 0.5 / POINT_VALUE, 6))
-points_redeemed = min(
-    (loyalty_points // 500) * 500,
-    (max_points_by_cap // 500) * 500,
-)
-points_discount = round(points_redeemed * POINT_VALUE, 2)
+max_redeemable = math.floor(loyalty_points / 500) * 500
+max_redeemable_value = max_redeemable * 0.01
 
-# Tier discount applies to the subtotal AFTER points
-subtotal_after_points = round(order_total - points_discount, 2)
-tier_rate = tier_rates.get(tier, 0.0)
-tier_discount = round(subtotal_after_points * tier_rate, 2)
+max_allowed_value = order_total * 0.5
+if max_redeemable_value > max_allowed_value:
+    points_redeemed = math.floor(max_allowed_value / 0.01 / 500) * 500
+else:
+    points_redeemed = max_redeemable
 
-final_total = round(subtotal_after_points - tier_discount, 2)
-total_savings = round(points_discount + tier_discount, 2)
-points_earned = int(final_total * earn_rates.get(product_category, 1))
+points_discount = points_redeemed * 0.01
+tier_discount = tier_discount_pct * (order_total - points_discount)
+final_total = order_total - points_discount - tier_discount
+total_savings = points_discount + tier_discount
+points_earned = math.floor(final_total * earn_rate)
 remaining_points = loyalty_points - points_redeemed + points_earned
 
-print(json.dumps({
-    "tier": tier,
-    "product_category": product_category,
-    "order_total": order_total,
+print(json.dumps({{
     "points_redeemed": points_redeemed,
-    "points_discount": points_discount,
-    "subtotal_after_points": subtotal_after_points,
-    "tier_rate": tier_rate,
-    "tier_discount": tier_discount,
-    "final_total": final_total,
-    "total_savings": total_savings,
-    "points_earned": points_earned,
-    "remaining_points": remaining_points,
-}))
-'''
-    code = header + logic
+    "tier_discount_pct": tier_discount_pct,
+    "final_total": round(final_total, 2),
+    "remaining_points": remaining_points
+}}))
+"""
+
     try:
-        # TODO: Execute the code using code_session and return the result✅
         with code_session(REGION) as code_client:
             response = code_client.invoke("executeCode", {
-                "code": code,
+                "code": logic,
                 "language": "python",
                 "clearContext": True,   # fresh sandbox every call — no state leaks
             })
+
         for event in response["stream"]:
             return json.dumps(event["result"])
-
     except Exception as e:
-        # TODO: Implement fallback calculation using tier discount only✅
-        logger.warning("Code Interpreter unavailable, using fallback: %s", e)
-
-        # Fallback: tier discount only (no points logic)
+        logger.warning(f"Code Interpreter unavailable, using fallback: {e}")
         tier_rates = {"Silver": 0.00, "Gold": 0.10, "Platinum": 0.15}
-        rate = tier_rates.get(tier, 0.0)
-        tier_discount = round(order_total * rate, 2)
-
-        return json.dumps({
-            "fallback": True,
-            "tier": tier,
-            "tier_rate": rate,
-            "tier_discount": tier_discount,
-            "final_total": round(order_total - tier_discount, 2),
-            "note": "Code Interpreter unavailable; points redemption not applied.",
-        })
+        tier_rate = tier_rates.get(tier, 0.0)
+        discount = round(float(order_total) * tier_rate, 2)
+        fallback = {
+            "tier_discount": discount,
+            "note": "FALLBACK: tier discount only (Code Interpreter unavailable)"
+        }
+        return json.dumps(fallback)
 
 
-# ── TODO 8 — Agent Entrypoint ─────────────────────────────────────────────────✅
-# Implement the invoke() function decorated with @app.entrypoint.
-#
-# Steps:
-#   1. Extract user_input, actor_id, and session_id from the payload
-#      (generate a UUID if session_id is missing)✅
-#   2. Instantiate MemoryHook for this actor/session✅
-#   3. Instantiate AgentCoreBrowser(region=REGION)✅
-#   4. Build the tools list: [search_knowledge_base, calculate_loyalty_discount,
-#                              agent_core_browser.browser]✅
-#   5. Connect to the Gateway via MCPClient, load gateway_tools, extend tools list✅
-#   6. Create and invoke the Agent with all tools, hooks, and system_prompt
-#   7. Return the text from the first content block of the response
-#   8. Handle exceptions gracefully
-
+# ── TODO 8 — Agent App Invocation ─────────────────────────────────────────────
 @app.entrypoint
-async def invoke(payload, context=None):
+async def invoke(payload: str | dict) -> str:
     """
     Main handler called by AgentCore for every incoming request.
 
@@ -508,55 +458,45 @@ async def invoke(payload, context=None):
       customer_id (str, optional) — unique customer identifier
       session_id  (str, optional) — session identifier; generated if absent
     """
-    # TODO: Implement the agent invocation
+    logger.warning(">>> RUNNING UPDATED CODE REVISION V2 <<<")
+    
+    if isinstance(payload, str):
+         payload = json.loads(payload)
+         
+    prompt = payload.get("prompt", "")
+    customer_id = payload.get("customer_id")
+    session_id = payload.get("session_id", str(uuid.uuid4()))
+    
+    if not customer_id:
+         raise ValueError("customer_id is required")
+    browser = AgentCoreBrowser(identifier="customer_support_browser-igGTtNrZOk", session_timeout=600)
+    tools = [search_knowledge_base, calculate_loyalty_discount, browser.browser]
+
+    mcp_client = MCPClient(
+        lambda: streamable_http_client(url=GATEWAY_URL)
+	)
+
     try:
-        user_input = payload.get("message", "Hello!")
-        session_id   = payload.get("session_id", str(uuid.uuid4())) 
-        actor_id     = payload.get("actor_id", "customer-00")
-        logger.info("User: %s", user_input[:80])
-        
-        memory_hook = MemoryHook(actor_id=actor_id,session_id=session_id,memory_client=memory_client, memory_id=MEMORY_ID)
-        agent_core_browser = AgentCoreBrowser(region=REGION,session_timeout=600)
-
-        tools = [
-                search_knowledge_base,
-                calculate_loyalty_discount,
-                agent_core_browser.browser,
-            ]
-
-        client = MCPClient(
-            lambda: streamable_http_client(url=GATEWAY_URL)
-        )
-
-
-        with client:
-            gateway_tools = client.list_tools_sync()
-            logger.info("Discovered %d tools from Gateway", len(tools))
+        with mcp_client:
+            gateway_tools = mcp_client.list_tools_sync()
             tools.extend(gateway_tools)
+            logger.info("Discovered %d tools from Gateway", len(gateway_tools))
+            memory_hook = MemoryHook(customer_id, session_id, memory_client, MEMORY_ID)
             agent = Agent(
                 model=model,
                 system_prompt=SYSTEM_PROMPT,
+                tools=tools,
                 hooks=[memory_hook],
-                tools=tools
+                state={"actor_id": customer_id, "session_id": session_id},
             )
-            state={"session_id": session_id, "actor_id": actor_id},
-            response = agent(user_input)
-            
-        if hasattr(response, "content") and response.content:
-                first_content = response.content[0]
 
-                if isinstance(first_content, dict):
-                    return first_content.get("text", str(first_content))
+            response = agent(prompt)
+            return response
 
-                return str(first_content)
+    except Exception as mcp_err:
+        logger.warning(f"Failed to connect to some tools: {mcp_err}")
 
-        return str(response)
-    except Exception as exc:
-        logger.exception("Agent invocation failed")
-        return f"Sorry, I encountered an error while processing your request: {exc}"
-
-
-
+    
 # ── CLI entry point (do not modify) ──────────────────────────────────────────
 def main():
     """Run one invocation from the command line for local testing."""
@@ -570,4 +510,4 @@ def main():
 if __name__ == "__main__":
     app.run()
     # Uncomment the line below and comment app.run() for local CLI testing:
-    # main()
+    #main()

@@ -11,14 +11,14 @@ agents:
     container_runtime: null
     source_path: /voc/work/Project_starter
     aws:
-      execution_role: null
-      execution_role_auto_create: true
+      execution_role: arn:aws:iam::197584432163:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-aa96c3a063
+      execution_role_auto_create: false
       account: '197584432163'
       region: us-east-1
       ecr_repository: null
       ecr_auto_create: false
-      s3_path: null
-      s3_auto_create: true
+      s3_path: s3://bedrock-agentcore-codebuild-sources-197584432163-us-east-1
+      s3_auto_create: false
       network_configuration:
         network_mode: PUBLIC
         network_mode_config: null
@@ -30,18 +30,18 @@ agents:
         idle_runtime_session_timeout: null
         max_lifetime: null
     bedrock_agentcore:
-      agent_id: null
-      agent_arn: null
-      agent_session_id: 10d70e6f-a9a6-44ca-bb96-909a5cb1b833
+      agent_id: customer_support_agent-zmeFx2Gtq1
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:197584432163:runtime/customer_support_agent-zmeFx2Gtq1
+      agent_session_id: 16797e9d-8ca8-4bfb-b7ae-2de114e5174d
     codebuild:
       project_name: null
       execution_role: null
       source_bucket: null
     memory:
-      mode: STM_AND_LTM
-      memory_id: CustomerSupportMemory-eP5VX7G0K8
+      mode: NO_MEMORY
+      memory_id: null
       memory_arn: null
-      memory_name: customer_support_agent_memory
+      memory_name: null
       event_expiry_days: 30
       first_invoke_memory_check_done: false
       was_created_by_toolkit: false
