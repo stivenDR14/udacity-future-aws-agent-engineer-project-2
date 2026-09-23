@@ -469,7 +469,7 @@ async def invoke(payload: str | dict) -> str:
     
     if not customer_id:
          raise ValueError("customer_id is required")
-    browser = AgentCoreBrowser(identifier="customer_support_browser-igGTtNrZOk", session_timeout=600)
+    browser = AgentCoreBrowser(identifier="customer_support_browser-igGTtNrZOk", session_timeout=1200, region=REGION)
     tools = [search_knowledge_base, calculate_loyalty_discount, browser.browser]
 
     mcp_client = MCPClient(
